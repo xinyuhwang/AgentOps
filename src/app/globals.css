@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+/**
+ * §5 — neutral base, a single accent, flat surfaces. Status colours exist only
+ * for status; there is no decorative use of green/amber/red anywhere.
+ */
+@theme {
+  --color-surface: #ffffff;
+  --color-surface-sunken: #fafafa;
+  --color-line: #e6e6e6;
+  --color-line-strong: #d4d4d4;
+  --color-ink: #1a1a1a;
+  --color-ink-muted: #6b6b6b;
+  --color-ink-faint: #9a9a9a;
+
+  /* The one accent. Primary actions only. */
+  --color-accent: #2f5cff;
+  --color-accent-ink: #ffffff;
+
+  /* Status only. */
+  --color-status-ok: #1f8a4c;
+  --color-status-warn: #b7791f;
+  --color-status-bad: #c0392b;
+  --color-status-idle: #9a9a9a;
+
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+html,
+body {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Machine data is monospace; everything else is sans (§5). */
+.machine {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
