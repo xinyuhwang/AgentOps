@@ -268,7 +268,7 @@ depend on it (SSE, replay, human-in-the-loop) ship in Phases 2–3.
 **Phase 2 — Platform primitives**
 - Save run → Workflow; workflow re-run against the pinned agent version.
 - Agent versioning UI: list, diff, promote to production.
-- SSE trace updates — one event per persisted step, replacing polling.
+- SSE (Server-Sent Events) trace updates — one event per persisted step, replacing polling.
 - Replay-from-step → new Run with `replayed_from_*`, halting at the
   first side-effecting step. Cached-output (deterministic) replay stays
   a stated stretch goal.
