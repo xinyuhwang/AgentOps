@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit",
     "enqueue": "tsx src/scripts/enqueue.ts",
     "trace": "tsx src/scripts/trace.ts",
-    "verify": "tsx src/scripts/verify.ts"
+    "test": "tsx src/test/run-all.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",

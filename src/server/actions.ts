@@ -2,68 +2,37 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { desc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { agentVersionTools, agentVersions, agents } from "@/db/schema";
+import { agents } from "@/db/schema";
 import { currentScope, scoped } from "@/db/scope";
 import { enqueueRun } from "@/core/run/create";
+import {
+  createAgentWithDraft,
+  saveAgentConfigFor,
+} from "@/core/agents/service";
 import { resolveApproval } from "@/core/run/approvals";
 
 /**
- * Saving agent config creates a *new* AgentVersion — it never edits the
- * existing row. Once a Run points at a version, that version is the record of
- * what produced it, so editing in place would quietly rewrite history.
+ * Thin adapter: parses the form and delegates to the agent service, which owns
+ * the versioning rule (edit v1 in place until a run references it, cut a new
+ * version after that).
  */
 export async function saveAgentConfig(agentId: string, formData: FormData) {
   const scope = await currentScope();
 
-  const [agent] = await db
-    .select()
-    .from(agents)
-    .where(scoped(agents, scope, eq(agents.id, agentId)))
-    .limit(1);
-
-  if (!agent) throw new Error("Agent not found");
-
-  const [latest] = await db
-    .select({ versionNo: agentVersions.versionNo })
-    .from(agentVersions)
-    .where(scoped(agentVersions, scope, eq(agentVersions.agentId, agentId)))
-    .orderBy(desc(agentVersions.versionNo))
-    .limit(1);
-
-  const [version] = await db
-    .insert(agentVersions)
-    .values({
-      organizationId: scope.organizationId,
-      agentId,
-      versionNo: (latest?.versionNo ?? 0) + 1,
-      model: String(formData.get("model") ?? "claude-opus-5"),
-      systemInstructions: String(formData.get("systemInstructions") ?? ""),
-      maxSteps: Number(formData.get("maxSteps") ?? 12),
-      timeoutMs: Number(formData.get("timeoutMs") ?? 30_000),
-      maxRetries: Number(formData.get("maxRetries") ?? 2),
-      requireApprovalForSideEffecting:
-        formData.get("requireApproval") === "on",
-    })
-    .returning();
-
-  const toolIds = formData.getAll("tools").map(String).filter(Boolean);
-  if (toolIds.length > 0) {
-    await db.insert(agentVersionTools).values(
-      toolIds.map((toolDefinitionId) => ({
-        agentVersionId: version.id,
-        toolDefinitionId,
-      })),
-    );
-  }
-
-  await db
-    .update(agents)
-    .set({ productionVersionId: version.id })
-    .where(scoped(agents, scope, eq(agents.id, agentId)));
+  await saveAgentConfigFor(scope, agentId, {
+    model: String(formData.get("model") ?? "claude-opus-5"),
+    systemInstructions: String(formData.get("systemInstructions") ?? ""),
+    maxSteps: Number(formData.get("maxSteps") ?? 12),
+    timeoutMs: Number(formData.get("timeoutMs") ?? 30_000),
+    maxRetries: Number(formData.get("maxRetries") ?? 2),
+    requireApprovalForSideEffecting: formData.get("requireApproval") === "on",
+    toolDefinitionIds: formData.getAll("tools").map(String).filter(Boolean),
+  });
 
   revalidatePath(`/agents/${agentId}`);
+  revalidatePath("/agents");
 }
 
 export async function startRun(agentId: string, formData: FormData) {
@@ -78,7 +47,10 @@ export async function startRun(agentId: string, formData: FormData) {
     .limit(1);
 
   if (!agent?.productionVersionId) {
-    throw new Error("This agent has no production version to run");
+    // A draft has never been configured, so there is nothing meaningful to run.
+    throw new Error(
+      "Configure and save this agent before running it — it has no production version yet.",
+    );
   }
 
   const run = await enqueueRun(scope, {
@@ -96,32 +68,14 @@ export async function createAgent(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
 
-  const [agent] = await db
-    .insert(agents)
-    .values({
-      organizationId: scope.organizationId,
-      name,
-      description: String(formData.get("description") ?? "") || null,
-    })
-    .returning();
+  const { agentId } = await createAgentWithDraft(scope, {
+    name,
+    description: String(formData.get("description") ?? ""),
+  });
 
-  const [version] = await db
-    .insert(agentVersions)
-    .values({
-      organizationId: scope.organizationId,
-      agentId: agent.id,
-      versionNo: 1,
-      model: "claude-opus-5",
-      systemInstructions: "",
-    })
-    .returning();
-
-  await db
-    .update(agents)
-    .set({ productionVersionId: version.id })
-    .where(eq(agents.id, agent.id));
-
-  redirect(`/agents/${agent.id}`);
+  // Lands on Overview, which is where configuration actually happens. The
+  // agent stays a draft until that form is saved.
+  redirect(`/agents/${agentId}`);
 }
 
 export async function decideApproval(

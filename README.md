@@ -36,12 +36,14 @@ to make real calls.
 
 ## Demo
 
-1. Open **Agents → Ops Notifier → Overview**, enter a task, and press **Run**.
+1. Open **Agents → Ops notifier → Overview**, enter a task, and press **Run**.
 2. The trace page updates as the worker advances the run. Phase 1 uses polling; Phase 2 will replace polling with SSE.
 3. When the agent reaches `send_email`, the side-effecting action triggers a pause. The run enters `awaiting_approval`, and the worker releases its lease. No process remains blocked while waiting for approval.
 4. Press **Approve** directly in the timeline. The run is re-queued, a worker claims it, and execution continues until completion.
 
 To demonstrate crash recovery, stop the worker while a run is in progress and restart it. The worker resumes the run from its last persisted step because execution state is stored entirely in Postgres rather than in process memory.
+
+Creating your own agent asks only for a name and a description, because configuration belongs to the Overview tab rather than to a second form that would duplicate it. A newly created agent is a **draft**: it cannot run until you save a configuration, and saving is what promotes it to production. That first save edits its v1 in place; only once a run has referenced a version does saving cut a new one.
 
 
 From the command line:
@@ -49,17 +51,27 @@ From the command line:
 ```bash
 pnpm enqueue "Investigate the nightly ETL alert" --agent "Ops notifier"
 pnpm trace          # prints the most recent run's trace
-pnpm verify         # Phase 1 acceptance checks (see below)
+pnpm test           # the full suite (see below)
 ```
 
-## What `pnpm verify` proves
+## Tests
 
-Phase 1's central claim is that the execution core is durable. `pnpm verify` tests that claim against a real database rather than relying on assertions about the implementation:
+```bash
+pnpm test
+```
 
-* **A — Approval:** A side-effecting tool suspends the run and the worker releases its lease. No email is sent before approval.
-* **B — Resume:** A different worker, with no memory of the first worker, resumes the run from persisted state and completes it. It continues from the saved step rather than restarting.
-* **C — Crash recovery:** A run whose worker has died is reclaimed after its lease expires, while an active lease cannot be stolen.
-* **D — Failure handling:** Tool failures are classified by type (`tool_error`, `timeout`, etc.) rather than flattened into a single failure state. Non-retryable failures are not retried.
+The suite uses Node's built-in test runner, so it adds no dependencies. Unit tests cover the tool dispatcher and history reconstruction and need nothing but Node. Integration tests exercise the real engine against the Postgres started by `pnpm db:up`, and each suite creates and tears down its own organization, so runs leave no rows behind and never disturb seeded data.
+
+Phase 1's central claim is that the execution core is durable, so the suite tests that claim against a real database rather than relying on assertions about the implementation:
+
+* **Approval.** A side-effecting tool suspends the run and the worker releases its lease. Nothing is sent before someone approves it, a rejected call never executes, and an approval cannot be resolved twice.
+* **Resume.** A different worker, with no memory of the first, resumes the run from persisted state and completes it. It continues from the last saved step rather than restarting.
+* **Crash recovery.** A run whose worker has died is reclaimed once its lease expires, while an active lease cannot be stolen. The per-organization concurrency cap holds, and a run that exceeds it waits rather than starving the pool.
+* **Failure handling.** Tool failures are classified by type (`tool_error`, `timeout`, `internal`) rather than flattened into a single state. Timeouts are retried up to the configured limit with each attempt surfaced separately, while non-retryable failures stop immediately.
+* **Agent versioning.** A new agent stays a draft until it is configured. The first save edits v1 in place, and once a run references a version, the next save cuts a new one and leaves the referenced version untouched.
+* **Tenancy.** Every persisted step carries its run's organization, and agents and approvals belonging to another organization are invisible.
+
+Note that if you leave `pnpm worker` running, it will compete with the tests for queued runs and cause spurious failures. Stop the worker before running the suite.
 
 ## Architecture Notes
 

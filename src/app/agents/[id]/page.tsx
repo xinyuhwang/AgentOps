@@ -18,10 +18,12 @@ export default async function AgentOverviewPage({
   const data = await getAgent(id);
   if (!data) notFound();
 
-  const { production, allTools, attachedToolIds } = data;
+  const { agent, production, allTools, attachedToolIds } = data;
   const hasSideEffectingAttached = allTools.some(
     (t) => attachedToolIds.has(t.id) && t.sideEffecting,
   );
+  // A draft has never been saved, so there is no production version to run.
+  const isDraft = agent.productionVersionId === null;
 
   const saveConfig = saveAgentConfig.bind(null, id);
   const run = startRun.bind(null, id);
@@ -139,13 +141,18 @@ export default async function AgentOverviewPage({
 
         <button
           type="submit"
-          className="rounded border border-line-strong px-3 py-1.5 text-sm transition-colors hover:bg-surface-sunken"
+          className={
+            isDraft
+              ? "rounded bg-accent px-4 py-1.5 text-sm text-accent-ink"
+              : "rounded border border-line-strong px-3 py-1.5 text-sm transition-colors hover:bg-surface-sunken"
+          }
         >
-          Save as new version
+          {isDraft ? "Save and promote to production" : "Save"}
         </button>
         <p className="text-xs text-ink-faint">
-          Saving creates a new version rather than editing this one, so every
-          past run still points at the exact config that produced it.
+          {isDraft
+            ? "This agent is a draft and cannot run yet. Saving promotes it to production."
+            : "Once a run has used a version, saving cuts a new one rather than editing it, so every past run still points at the exact config that produced it."}
         </p>
       </form>
 
@@ -158,14 +165,21 @@ export default async function AgentOverviewPage({
           <input
             name="task"
             required
-            placeholder="Check refund status for order 1182"
-            className="w-full rounded border border-line px-2 py-1.5 text-sm outline-none focus:border-accent"
+            disabled={isDraft}
+            placeholder={
+              isDraft
+                ? "Save the configuration above first"
+                : "Check refund status for order 1182"
+            }
+            className="w-full rounded border border-line px-2 py-1.5 text-sm outline-none focus:border-accent disabled:bg-surface-sunken disabled:text-ink-faint"
           />
         </label>
-        {/* The one primary action on this screen (§5). */}
+        {/* The one primary action on this screen once the agent is real (§5).
+            While it is a draft, Save carries that role instead. */}
         <button
           type="submit"
-          className="rounded bg-accent px-4 py-1.5 text-sm text-accent-ink"
+          disabled={isDraft}
+          className="rounded bg-accent px-4 py-1.5 text-sm text-accent-ink disabled:opacity-40"
         >
           Run
         </button>

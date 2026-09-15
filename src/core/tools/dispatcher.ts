@@ -1,6 +1,14 @@
 import { AgentOpsError, classifyUnknown } from "../errors";
 import type { ErrorType } from "@/db/schema";
-import { BUILTIN_BY_KEY } from "./builtin";
+import { BUILTIN_BY_KEY, type BuiltinTool } from "./builtin";
+
+/**
+ * Where the dispatcher looks tools up. Defaults to the built-ins; injectable so
+ * tests can exercise timeout and retry behaviour with a slow or flaky tool
+ * without adding one to the product's tool list. Phase 2 uses the same seam to
+ * resolve tools from `tool_definitions` rows rather than from code.
+ */
+export type ToolRegistry = Map<string, BuiltinTool>;
 
 /**
  * §7.4 — every tool call goes through one dispatcher with a uniform timeout and
@@ -26,6 +34,7 @@ export type DispatchOptions = {
   /** Total attempts are maxRetries + 1. */
   maxRetries: number;
   onAttemptSettled?: (record: AttemptRecord) => Promise<void>;
+  registry?: ToolRegistry;
 };
 
 export type DispatchOutcome = {
@@ -66,7 +75,7 @@ export async function dispatchTool(
   args: Record<string, unknown>,
   options: DispatchOptions,
 ): Promise<DispatchOutcome> {
-  const tool = BUILTIN_BY_KEY.get(toolKey);
+  const tool = (options.registry ?? BUILTIN_BY_KEY).get(toolKey);
 
   if (!tool) {
     // The model hallucinated a tool. Not retryable, and not an engine crash —
