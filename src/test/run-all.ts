@@ -15,6 +15,7 @@ await import("@/core/tools/dispatcher.test");
 await import("@/core/run/history.test");
 await import("@/core/agents/service.test");
 await import("@/core/run/machine.test");
+await import("@/server/stream.test");
 
 // The database pool is closed by the root `after` hooks in the integration
 // suites (see `closeDb` in test/helpers).

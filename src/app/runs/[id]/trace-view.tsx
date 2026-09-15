@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import type { TraceStep, TraceView } from "@/server/trace";
+import type { TraceAgent, TraceRun, TraceStep, TraceView } from "@/server/trace";
 import { decideApproval } from "@/server/actions";
 import {
   StatusDot,
@@ -20,7 +20,7 @@ const STEP_GLYPH: Record<TraceStep["type"], string> = {
   completion: "●",
 };
 
-const IN_FLIGHT = new Set(["queued", "running"]);
+const TERMINAL = new Set(["completed", "failed", "cancelled", "timed_out"]);
 
 /**
  * §3.3 — the centerpiece. Three columns: timeline, inspector, status bar.
@@ -30,28 +30,78 @@ export function TraceUi({ initial }: { initial: TraceView }) {
   const [selectedId, setSelectedId] = useState<string | null>(
     initial.steps[0]?.id ?? null,
   );
+  const [live, setLive] = useState(false);
 
-  // Polling in Phase 1; SSE in Phase 2. Either way the run advances in the
-  // worker — closing this tab does not affect it.
+  const runId = initial.run.id;
+  const alreadyFinished = TERMINAL.has(initial.run.status);
+
+  // Captured once. Deriving this inline would make the effect's dependency a
+  // fresh array on every parent re-render, tearing the stream down and
+  // rebuilding it — including after an approval revalidates this page.
+  const [initialCursor] = useState(() => {
+    const last = initial.steps.at(-1);
+    return last ? `${last.ordinal}-${last.attempt}` : null;
+  });
+
+  /**
+   * One event per persisted step, over SSE. The run advances in the worker
+   * regardless — closing this tab does not affect it, and reopening resumes
+   * from whatever the timeline is missing.
+   */
   useEffect(() => {
-    if (!IN_FLIGHT.has(view.run.status)) return;
+    if (alreadyFinished) return;
 
-    const timer = setInterval(async () => {
-      const res = await fetch(`/api/runs/${view.run.id}/trace`, {
-        cache: "no-store",
+    // Resume from the last step already rendered, so a reconnect does not
+    // resend the whole trace. EventSource also sends Last-Event-ID itself once
+    // it has seen an event, which covers mid-stream drops.
+    const from = initialCursor ? `?from=${initialCursor}` : "";
+    const source = new EventSource(`/api/runs/${runId}/stream${from}`);
+
+    source.addEventListener("open", () => setLive(true));
+
+    source.addEventListener("run", (event) => {
+      const payload = JSON.parse((event as MessageEvent).data) as {
+        run: TraceRun;
+        agent: TraceAgent;
+      };
+      setView((prev) => ({ ...prev, run: payload.run, agent: payload.agent }));
+    });
+
+    source.addEventListener("step", (event) => {
+      const step = JSON.parse((event as MessageEvent).data) as TraceStep;
+      setView((prev) => {
+        // Steps are append-only, but a reconnect can legitimately redeliver the
+        // event that was in flight when the connection dropped.
+        if (prev.steps.some((s) => s.id === step.id)) return prev;
+        return { ...prev, steps: [...prev.steps, step] };
       });
-      if (res.ok) setView(await res.json());
-    }, 1000);
+      setSelectedId((current) => current ?? step.id);
+    });
 
-    return () => clearInterval(timer);
-  }, [view.run.id, view.run.status]);
+    source.addEventListener("done", () => {
+      setLive(false);
+      source.close();
+    });
+
+    source.addEventListener("error", () => {
+      // EventSource reconnects on its own; reflect the gap rather than hiding it.
+      setLive(false);
+    });
+
+    return () => {
+      source.close();
+      setLive(false);
+    };
+    // Intentionally keyed only on the run: re-running this on every status
+    // change would tear down and rebuild the stream mid-run.
+  }, [runId, alreadyFinished, initialCursor]);
 
   const selected =
     view.steps.find((s) => s.id === selectedId) ?? view.steps[0] ?? null;
 
   return (
     <div className="space-y-4">
-      <StatusBar view={view} />
+      <StatusBar view={view} live={live} />
 
       <div className="grid grid-cols-[1fr_20rem] gap-4">
         <Timeline
@@ -65,13 +115,16 @@ export function TraceUi({ initial }: { initial: TraceView }) {
   );
 }
 
-function StatusBar({ view }: { view: TraceView }) {
+function StatusBar({ view, live }: { view: TraceView; live: boolean }) {
   const { run } = view;
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded border border-line px-4 py-3 text-xs">
       <span className="flex items-center gap-2">
         <StatusDot status={run.status} />
         <span className="font-medium">{STATUS_LABEL[run.status]}</span>
+        {/* Shown rather than hidden: if the stream drops, the timeline is
+            stale and the user should know that, not guess it. */}
+        {live ? <span className="text-ink-faint">· live</span> : null}
       </span>
       <span className="machine text-ink-faint">{run.id}</span>
       <span className="text-ink-muted">

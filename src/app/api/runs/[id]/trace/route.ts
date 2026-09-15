@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import { loadTraceView } from "@/server/trace";
 
 /**
- * Polled by the trace page while a run is in flight. Phase 2 replaces the
- * polling with SSE — one event per persisted step, resumable via
- * `Last-Event-ID` — but the payload shape stays the same, because the stream is
- * a view onto persisted steps rather than the thing driving execution.
+ * A one-shot JSON snapshot of a run's trace.
+ *
+ * The UI no longer polls this — it server-renders the first paint and then
+ * follows `../stream` over SSE. This stays as a plain read API for scripts and
+ * debugging, and it shares its shape with the stream via `loadTraceView`, so
+ * the two cannot drift.
  */
 export async function GET(
   _request: Request,

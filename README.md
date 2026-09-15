@@ -37,7 +37,7 @@ to make real calls.
 ## Demo
 
 1. Open **Agents → Ops notifier → Overview**, enter a task, and press **Run**.
-2. The trace page updates as the worker advances the run. Phase 1 uses polling; Phase 2 will replace polling with SSE.
+2. The trace page fills in as the worker advances the run, over SSE — one event per persisted step. The status bar shows `· live` while the stream is connected. Reload mid-run and it resumes from the steps already rendered rather than replaying the whole trace.
 3. When the agent reaches `send_email`, the side-effecting action triggers a pause. The run enters `awaiting_approval`, and the worker releases its lease. No process remains blocked while waiting for approval.
 4. Press **Approve** directly in the timeline. The run is re-queued, a worker claims it, and execution continues until completion.
 
@@ -88,7 +88,15 @@ Note that if you leave `pnpm worker` running, it will compete with the tests for
 
 ## Not yet built
 
-Phase 2 (workflows, agent-version UI, SSE, replay UI), Phase 3 (evaluations,
-workspace switcher), Phase 4 (test suite, structured logging, rate limits,
-Docker image for the app itself). The `Workflows` nav item and the
-`eval_sets` / `eval_tasks` / `eval_runs` tables exist but have no UI yet.
+The rest of Phase 2 (workflow capture and re-run, agent-version UI, the
+replay-from-step action), Phase 3 (evaluations, workspace switcher), and most of
+Phase 4 (structured logging, rate limits, Docker image for the app itself). The
+`Workflows` nav item and the `eval_sets` / `eval_tasks` / `eval_runs` tables
+exist but have no UI yet.
+
+Two known gaps worth naming. [`replayRun`](src/core/run/create.ts) refuses to
+replay past a side-effecting step, but it currently identifies those by matching
+the tool's label rather than by resolving the pinned tool definition, so a new
+side-effecting tool would slip past the guard. And `POST /api/workflows/:id/run`
+does not exist yet; when it does it needs the per-organization API key, since
+otherwise it is an unauthenticated way to spend money.
