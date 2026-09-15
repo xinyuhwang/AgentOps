@@ -3,10 +3,12 @@
 ## 1. Vision
 
 AgentOps is a small, polished platform for building, running, and observing AI agents. The goal is for the product to feel like a well-made tool rather than a crowded dashboard: every screen should show exactly what the user needs for the task in front of them, and nothing more.
+
 **Core loop:** Create agent → configure tools → define task → run →
 inspect trace → approve/intervene → evaluate → save as workflow → reuse.
 
 The execution trace inspector is the centerpiece of the product. Every other screen exists either to feed data into the trace or to act on what the trace shows.
+
 ---
 
 ## 2. Information architecture
