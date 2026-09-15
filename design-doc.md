@@ -2,23 +2,16 @@
 
 ## 1. Vision
 
-A small, polished platform for building, running, and observing AI agents.
-The product should feel like a well-made tool, not a dashboard — every screen
-shows exactly what's needed for the task at hand and nothing else. Think IKEA:
-few parts, each one obviously considered, nothing decorative.
-
+AgentOps is a small, polished platform for building, running, and observing AI agents. The goal is for the product to feel like a well-made tool rather than a crowded dashboard: every screen should show exactly what the user needs for the task in front of them, and nothing more.
 **Core loop:** Create agent → configure tools → define task → run →
 inspect trace → approve/intervene → evaluate → save as workflow → reuse.
 
-The trace inspector is the centerpiece. Everything else exists to feed it
-data or act on what it shows.
-
+The execution trace inspector is the centerpiece of the product. Every other screen exists either to feed data into the trace or to act on what the trace shows.
 ---
 
 ## 2. Information architecture
 
-Flat, three-item primary nav. Depth lives inside each agent, not in the
-global sidebar.
+The primary navigation is intentionally flat, with only three top-level items. Additional depth lives inside each agent rather than in the global sidebar, which keeps the sidebar itself simple:
 
 ```
 Dashboard
@@ -32,15 +25,9 @@ Workflows
   └─ Workflow detail (saved run → steps → run again / API endpoint)
 ```
 
-No standalone "Tools" or "Runs" nav items in MVP. Tools are attached from
-within Agent config; a global tool registry is a v2 feature once agents
-share enough tools to need one. "Runs" lives under each agent rather than
-as a cross-agent firehose — a recent-runs list on the Dashboard covers the
-cross-agent view.
+There is no standalone "Tools" or "Runs" item in the top-level navigation for the MVP. Tools are attached from within an agent's configuration screen; a global tool registry can be added later, once agents share enough tools to justify one. Similarly, "Runs" lives underneath each agent rather than existing as a single list spanning every agent, since a recent-runs list on the Dashboard already covers the cross-agent view.
 
-Workspace switcher (multi-tenancy) sits top-right, next to the user menu —
-it changes *which organization's data* every other screen shows, it isn't
-a page of its own.
+A workspace switcher, which supports multi-tenancy, sits in the top-right corner next to the user menu. It changes which organization's data every other screen displays; it is not a page in its own right.
 
 ---
 
