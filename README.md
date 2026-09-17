@@ -94,9 +94,27 @@ Phase 4 (structured logging, rate limits, Docker image for the app itself). The
 `Workflows` nav item and the `eval_sets` / `eval_tasks` / `eval_runs` tables
 exist but have no UI yet.
 
-Two known gaps worth naming. [`replayRun`](src/core/run/create.ts) refuses to
-replay past a side-effecting step, but it currently identifies those by matching
-the tool's label rather than by resolving the pinned tool definition, so a new
-side-effecting tool would slip past the guard. And `POST /api/workflows/:id/run`
-does not exist yet; when it does it needs the per-organization API key, since
-otherwise it is an unauthenticated way to spend money.
+One known gap worth naming: `POST /api/workflows/:id/run` does not exist yet,
+and when it does it needs the per-organization API key, since otherwise it is an
+unauthenticated way to spend money.
+
+## Replay
+
+Replay forks a trace rather than re-running it. Open a finished run, select a
+model step, and press **Replay from step N**: steps `0..N-1` are copied into a
+new run, which then continues from there with live tool calls against the same
+agent version.
+
+Forking is what makes this safe. Nothing before the fork point executes again,
+so a side-effecting call in the copied prefix keeps its recorded result instead
+of sending a second email. The state machine needs no knowledge of replay at
+all — it rebuilds state from persisted steps, so a copied prefix looks exactly
+like one it produced itself.
+
+Two consequences. The fork point has to be a clean model-turn boundary, because
+a copied thought step replays as an assistant turn carrying its `tool_use`
+blocks, and cutting between that turn and its results would leave a tool call
+unanswered; `checkForkPoint` refuses those, and refuses to carry an unresolved
+approval across. And the replay's cost starts at zero, because the prefix's
+spend belongs to the source run — copied steps keep their original cost, so the
+numbers stay reconcilable.

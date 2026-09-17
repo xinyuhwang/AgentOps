@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import type { TraceAgent, TraceRun, TraceStep, TraceView } from "@/server/trace";
-import { decideApproval } from "@/server/actions";
+import { decideApproval, replayFromStep } from "@/server/actions";
 import {
   StatusDot,
   STATUS_LABEL,
@@ -99,9 +99,34 @@ export function TraceUi({ initial }: { initial: TraceView }) {
   const selected =
     view.steps.find((s) => s.id === selectedId) ?? view.steps[0] ?? null;
 
+  /**
+   * Deliberately conservative: a `thought` step always begins a model turn, so
+   * forking there can never cut a tool call away from its result. The server
+   * applies the full check in `checkForkPoint`, so this only decides what to
+   * *offer* — it cannot authorise a bad fork.
+   */
+  const forkableOrdinal =
+    TERMINAL.has(view.run.status) &&
+    selected?.type === "thought" &&
+    selected.ordinal > 0
+      ? selected.ordinal
+      : null;
+
+  // Only worth prompting once the run has finished; a live run has nothing to
+  // replay yet.
+  const replayHint =
+    forkableOrdinal === null && TERMINAL.has(view.run.status)
+      ? "Select a model step to replay from"
+      : null;
+
   return (
     <div className="space-y-4">
-      <StatusBar view={view} live={live} />
+      <StatusBar
+        view={view}
+        live={live}
+        forkableOrdinal={forkableOrdinal}
+        replayHint={replayHint}
+      />
 
       <div className="grid grid-cols-[1fr_20rem] gap-4">
         <Timeline
@@ -115,7 +140,17 @@ export function TraceUi({ initial }: { initial: TraceView }) {
   );
 }
 
-function StatusBar({ view, live }: { view: TraceView; live: boolean }) {
+function StatusBar({
+  view,
+  live,
+  forkableOrdinal,
+  replayHint,
+}: {
+  view: TraceView;
+  live: boolean;
+  forkableOrdinal: number | null;
+  replayHint: string | null;
+}) {
   const { run } = view;
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded border border-line px-4 py-3 text-xs">
@@ -137,6 +172,22 @@ function StatusBar({ view, live }: { view: TraceView; live: boolean }) {
           {run.tokensIn}/{run.tokensOut} tok
         </span>
         <span className="machine">{formatCost(run.costUsd)}</span>
+        {/* The single action on this bar, and only when a step is selected
+            that can actually be forked from (§3.3). The hint exists because
+            the action is otherwise invisible until you happen to click the
+            right kind of step. */}
+        {forkableOrdinal !== null ? (
+          <form action={replayFromStep.bind(null, run.id, forkableOrdinal)}>
+            <button
+              type="submit"
+              className="rounded border border-line-strong px-2 py-1 text-xs text-ink transition-colors hover:bg-surface-sunken"
+            >
+              Replay from step {forkableOrdinal}
+            </button>
+          </form>
+        ) : replayHint ? (
+          <span className="text-ink-faint">{replayHint}</span>
+        ) : null}
       </span>
       {run.replayedFromRunId ? (
         <span className="w-full text-ink-muted">
@@ -204,6 +255,13 @@ function Timeline({
               {STEP_GLYPH[step.type]}
             </span>
             <span className="min-w-0 flex-1 truncate">{step.label}</span>
+            {/* A copied prefix step: carried over from the source run, not
+                executed again. Derived rather than stored — anything before the
+                fork point is by definition a copy. */}
+            {view.run.replayedFromStepOrdinal !== null &&
+            step.ordinal < view.run.replayedFromStepOrdinal ? (
+              <span className="shrink-0 text-xs text-ink-faint">replayed</span>
+            ) : null}
             {step.attempt > 1 ? (
               <span className="machine shrink-0 text-xs text-ink-faint">
                 attempt {step.attempt}

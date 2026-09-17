@@ -302,13 +302,36 @@ architecture diagram, README demo script.
    onto persisted steps*, never the thing driving execution — closing
    the browser does not affect the run. Disable proxy buffering
    (`X-Accel-Buffering: no`) or streams arrive in chunks.
-3. **Replay semantics:** replay from step N creates a new Run
-   (`replayed_from_run_id` + `replayed_from_step_ordinal`) with live
-   tool calls against the same agent version and inputs. It **halts at
-   the first side-effecting step** and requires explicit approval
-   before proceeding — otherwise replay silently re-sends the email or
-   re-charges the card. Cached-output (deterministic) replay needs full
-   step snapshots; deferred.
+3. **Replay semantics:** replay from step N **forks the trace**. Steps
+   `0..N-1` are copied into a new Run (`replayed_from_run_id` +
+   `replayed_from_step_ordinal`), which then continues with live tool
+   calls against the same agent version and input.
+
+   Forking rather than re-running is what makes replay safe: nothing
+   before N executes a second time, so a side-effecting call in the
+   prefix is *copied* with its recorded result rather than re-sending
+   the email or re-charging the card. The state machine needs no
+   knowledge of replay at all — it rebuilds state from persisted steps,
+   so a copied prefix is indistinguishable from one it produced itself.
+
+   The constraint this introduces is that **N must be a clean
+   model-turn boundary**. A thought step replays verbatim as an
+   assistant turn carrying its `tool_use` blocks, so cutting between
+   that turn and its results would leave a tool call unanswered and the
+   next model request would be rejected as malformed. `checkForkPoint`
+   enforces this, and also refuses to carry an unresolved approval into
+   a replay.
+
+   Cost is not inherited: the replay's totals start at zero, because the
+   prefix's spend belongs to the source run and counting it twice would
+   corrupt avg-cost-per-run (§3.4). A copied step is identifiable as
+   `ordinal < replayed_from_step_ordinal`, so the two figures stay
+   reconcilable without another column.
+
+   Fully deterministic replay — continuing *past* N on recorded tool
+   outputs rather than live calls — remains a stretch goal, but it is
+   cheaper than first assumed: every step already persists its
+   `arguments` and `result`, so the snapshots it needs exist.
 4. **Tool execution and dispatch:** all tool calls go through a single
    dispatcher with a uniform timeout and retry wrapper, so limits
    behave identically across tool types and each retry lands as a new

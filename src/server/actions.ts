@@ -12,6 +12,7 @@ import {
   saveAgentConfigFor,
 } from "@/core/agents/service";
 import { resolveApproval } from "@/core/run/approvals";
+import { replayRun } from "@/core/run/replay";
 
 /**
  * Thin adapter: parses the form and delegates to the agent service, which owns
@@ -76,6 +77,18 @@ export async function createAgent(formData: FormData) {
   // Lands on Overview, which is where configuration actually happens. The
   // agent stays a draft until that form is saved.
   redirect(`/agents/${agentId}`);
+}
+
+/**
+ * Forks a run at step N into a new run (§3.3, §7.3). The source trace is left
+ * untouched; the caller lands on the replay's own trace.
+ */
+export async function replayFromStep(runId: string, fromOrdinal: number) {
+  const scope = await currentScope();
+  const replay = await replayRun(scope, runId, fromOrdinal);
+
+  revalidatePath(`/runs/${runId}`);
+  redirect(`/runs/${replay.id}`);
 }
 
 export async function decideApproval(
