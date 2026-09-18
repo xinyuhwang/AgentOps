@@ -1,5 +1,5 @@
 import "server-only";
-import { desc, eq, gte, sql } from "drizzle-orm";
+import { desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   agentVersionTools,
@@ -129,6 +129,95 @@ export async function getAgent(agentId: string) {
     allTools,
     attachedToolIds: new Set(attached.map((a) => a.id)),
   };
+}
+
+export type VersionRow = {
+  id: string;
+  versionNo: number;
+  model: string;
+  systemInstructions: string;
+  maxSteps: number;
+  timeoutMs: number;
+  maxRetries: number;
+  requireApprovalForSideEffecting: boolean;
+  createdAt: Date;
+  archivedAt: Date | null;
+  isProduction: boolean;
+  runCount: number;
+  toolKeys: string[];
+};
+
+/**
+ * Versions with the two facts that make the list worth reading: whether a
+ * version is in production, and how many runs actually exercised it. A version
+ * with no runs behind it has no evidence behind it either.
+ */
+export async function agentVersionList(agentId: string): Promise<VersionRow[]> {
+  const scope = await currentScope();
+
+  const [agent] = await db
+    .select({ productionVersionId: agents.productionVersionId })
+    .from(agents)
+    .where(scoped(agents, scope, eq(agents.id, agentId)))
+    .limit(1);
+
+  if (!agent) return [];
+
+  const versions = await db
+    .select()
+    .from(agentVersions)
+    .where(scoped(agentVersions, scope, eq(agentVersions.agentId, agentId)))
+    .orderBy(desc(agentVersions.versionNo));
+
+  if (versions.length === 0) return [];
+
+  const ids = versions.map((v) => v.id);
+
+  const counts = await db
+    .select({
+      agentVersionId: runs.agentVersionId,
+      n: sql<number>`count(*)::int`,
+    })
+    .from(runs)
+    .where(scoped(runs, scope, inArray(runs.agentVersionId, ids)))
+    .groupBy(runs.agentVersionId);
+
+  const countByVersion = new Map(counts.map((c) => [c.agentVersionId, c.n]));
+
+  const attachments = await db
+    .select({
+      agentVersionId: agentVersionTools.agentVersionId,
+      key: toolDefinitions.key,
+    })
+    .from(agentVersionTools)
+    .innerJoin(
+      toolDefinitions,
+      eq(agentVersionTools.toolDefinitionId, toolDefinitions.id),
+    )
+    .where(inArray(agentVersionTools.agentVersionId, ids));
+
+  const toolsByVersion = new Map<string, string[]>();
+  for (const row of attachments) {
+    const list = toolsByVersion.get(row.agentVersionId) ?? [];
+    list.push(row.key);
+    toolsByVersion.set(row.agentVersionId, list);
+  }
+
+  return versions.map((v) => ({
+    id: v.id,
+    versionNo: v.versionNo,
+    model: v.model,
+    systemInstructions: v.systemInstructions,
+    maxSteps: v.maxSteps,
+    timeoutMs: v.timeoutMs,
+    maxRetries: v.maxRetries,
+    requireApprovalForSideEffecting: v.requireApprovalForSideEffecting,
+    createdAt: v.createdAt,
+    archivedAt: v.archivedAt,
+    isProduction: v.id === agent.productionVersionId,
+    runCount: countByVersion.get(v.id) ?? 0,
+    toolKeys: toolsByVersion.get(v.id) ?? [],
+  }));
 }
 
 export async function agentRuns(agentId: string, limit = 50) {

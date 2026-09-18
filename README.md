@@ -88,15 +88,32 @@ Note that if you leave `pnpm worker` running, it will compete with the tests for
 
 ## Not yet built
 
-The rest of Phase 2 (workflow capture and re-run, agent-version UI, the
-replay-from-step action), Phase 3 (evaluations, workspace switcher), and most of
-Phase 4 (structured logging, rate limits, Docker image for the app itself). The
-`Workflows` nav item and the `eval_sets` / `eval_tasks` / `eval_runs` tables
-exist but have no UI yet.
+The rest of Phase 2 (workflow capture and re-run), Phase 3 (evaluations,
+workspace switcher), and most of Phase 4 (structured logging, rate limits,
+Docker image for the app itself). The `Workflows` nav item and the
+`eval_sets` / `eval_tasks` / `eval_runs` tables exist but have no UI yet.
 
 One known gap worth naming: `POST /api/workflows/:id/run` does not exist yet,
 and when it does it needs the per-organization API key, since otherwise it is an
 unauthenticated way to spend money.
+
+## Versions
+
+The **Versions** tab lists every version of an agent with its model, age, tool
+count, and how many runs have actually exercised it — a version with no runs
+behind it has no evidence behind it either. Exactly one version is production
+at a time, and **Diff** compares any other version against it, which is the
+comparison that answers "what would change if I promoted this".
+
+Archiving hides a version from the Overview form but never deletes it, because
+runs keep pointing at the exact config that produced them. The production
+version cannot be archived, and an archived version cannot be promoted until
+it is unarchived.
+
+Saving edits the current version in place only while nothing has run against it
+*and* it is still the production version. Once you promote an older version,
+those two diverge, so saving always cuts a new version rather than silently
+overwriting a version you were not looking at.
 
 ## Replay
 

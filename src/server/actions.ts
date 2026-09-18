@@ -9,7 +9,9 @@ import { currentScope, scoped } from "@/db/scope";
 import { enqueueRun } from "@/core/run/create";
 import {
   createAgentWithDraft,
+  promoteVersion,
   saveAgentConfigFor,
+  setVersionArchived,
 } from "@/core/agents/service";
 import { resolveApproval } from "@/core/run/approvals";
 import { replayRun } from "@/core/run/replay";
@@ -77,6 +79,26 @@ export async function createAgent(formData: FormData) {
   // Lands on Overview, which is where configuration actually happens. The
   // agent stays a draft until that form is saved.
   redirect(`/agents/${agentId}`);
+}
+
+export async function promoteAgentVersion(agentId: string, versionId: string) {
+  const scope = await currentScope();
+  await promoteVersion(scope, agentId, versionId);
+
+  revalidatePath(`/agents/${agentId}/versions`);
+  revalidatePath(`/agents/${agentId}`);
+  revalidatePath("/agents");
+}
+
+export async function archiveAgentVersion(
+  agentId: string,
+  versionId: string,
+  archived: boolean,
+) {
+  const scope = await currentScope();
+  await setVersionArchived(scope, agentId, versionId, archived);
+
+  revalidatePath(`/agents/${agentId}/versions`);
 }
 
 /**

@@ -13,6 +13,7 @@ export {};
 
 await import("@/core/tools/dispatcher.test");
 await import("@/core/run/history.test");
+await import("@/core/agents/diff.test");
 await import("@/core/agents/service.test");
 await import("@/core/run/machine.test");
 await import("@/core/run/replay.test");

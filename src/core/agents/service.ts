@@ -50,6 +50,79 @@ export async function createAgentWithDraft(
   return { agentId: agent.id, versionId: version.id };
 }
 
+/**
+ * Promotes an existing version to production (§3.6). Exactly one version is
+ * production at a time, which the schema makes structurally true by pointing
+ * at it from the agent rather than flagging it on the version.
+ */
+export async function promoteVersion(
+  scope: Scope,
+  agentId: string,
+  versionId: string,
+): Promise<void> {
+  const [version] = await db
+    .select()
+    .from(agentVersions)
+    .where(
+      scoped(
+        agentVersions,
+        scope,
+        and(eq(agentVersions.id, versionId), eq(agentVersions.agentId, agentId)),
+      ),
+    )
+    .limit(1);
+
+  if (!version) throw new Error("Version not found for this agent");
+  if (version.archivedAt) {
+    // Promoting an archived version would contradict the reason it was
+    // archived; unarchive it deliberately first.
+    throw new Error("Unarchive this version before promoting it");
+  }
+
+  await db
+    .update(agents)
+    .set({ productionVersionId: versionId })
+    .where(scoped(agents, scope, eq(agents.id, agentId)));
+}
+
+/**
+ * Archiving is a display concern, not a delete: runs keep pointing at archived
+ * versions, and their traces must still say exactly what produced them.
+ */
+export async function setVersionArchived(
+  scope: Scope,
+  agentId: string,
+  versionId: string,
+  archived: boolean,
+): Promise<void> {
+  const [agent] = await db
+    .select()
+    .from(agents)
+    .where(scoped(agents, scope, eq(agents.id, agentId)))
+    .limit(1);
+
+  if (!agent) throw new Error("Agent not found");
+  if (archived && agent.productionVersionId === versionId) {
+    throw new Error(
+      "This version is in production. Promote another version before archiving it.",
+    );
+  }
+
+  const updated = await db
+    .update(agentVersions)
+    .set({ archivedAt: archived ? new Date() : null })
+    .where(
+      scoped(
+        agentVersions,
+        scope,
+        and(eq(agentVersions.id, versionId), eq(agentVersions.agentId, agentId)),
+      ),
+    )
+    .returning({ id: agentVersions.id });
+
+  if (updated.length === 0) throw new Error("Version not found for this agent");
+}
+
 /** A version is frozen as soon as any run points at it. */
 export async function isVersionReferenced(versionId: string): Promise<boolean> {
   const [row] = await db
@@ -98,7 +171,22 @@ export async function saveAgentConfigFor(
     requireApprovalForSideEffecting: config.requireApprovalForSideEffecting,
   };
 
-  const editInPlace = latest ? !(await isVersionReferenced(latest.id)) : false;
+  /**
+   * Edit in place only while the latest version is also the one in production.
+   *
+   * Once an older version can be promoted, those diverge — and the Overview
+   * form renders the *production* version. Editing the latest row then would
+   * silently overwrite a version the user was not looking at. Archived
+   * versions are likewise never edited in place.
+   */
+  const editInPlace = latest
+    ? latest.archivedAt === null &&
+      // A never-promoted draft has no production version yet; its v1 is still
+      // the row the form is showing, so editing it in place is correct.
+      (agent.productionVersionId === null ||
+        latest.id === agent.productionVersionId) &&
+      !(await isVersionReferenced(latest.id))
+    : false;
 
   let versionId: string;
   let versionNo: number;

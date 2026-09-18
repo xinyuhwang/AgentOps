@@ -4,7 +4,12 @@ import { desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { agentVersionTools, agentVersions, agents } from "@/db/schema";
 import type { Scope } from "@/db/scope";
-import { createAgentWithDraft, saveAgentConfigFor } from "./service";
+import {
+  createAgentWithDraft,
+  promoteVersion,
+  saveAgentConfigFor,
+  setVersionArchived,
+} from "./service";
 import {
   closeDb,
   createTestOrg,
@@ -195,5 +200,115 @@ describe("agent lifecycle", () => {
       versions.map((v) => v.versionNo),
       [4, 3, 2, 1],
     );
+  });
+
+  test("promoting an older version makes it production", async () => {
+    const { agentId } = await createAgentWithDraft(scope, { name: "Promote" });
+    const v1 = await saveAgentConfigFor(scope, agentId, config());
+    await recordCompletedRun(scope, v1.versionId);
+    const v2 = await saveAgentConfigFor(
+      scope,
+      agentId,
+      config({ systemInstructions: "second" }),
+    );
+
+    let [agent] = await db.select().from(agents).where(eq(agents.id, agentId));
+    assert.equal(agent.productionVersionId, v2.versionId);
+
+    await promoteVersion(scope, agentId, v1.versionId);
+
+    [agent] = await db.select().from(agents).where(eq(agents.id, agentId));
+    assert.equal(agent.productionVersionId, v1.versionId);
+  });
+
+  test("saving never edits in place once production is behind the latest version", async () => {
+    const { agentId } = await createAgentWithDraft(scope, { name: "Diverged" });
+    const v1 = await saveAgentConfigFor(scope, agentId, config());
+    await recordCompletedRun(scope, v1.versionId);
+
+    // v2 has no runs, so it would normally be editable in place.
+    const v2 = await saveAgentConfigFor(
+      scope,
+      agentId,
+      config({ systemInstructions: "v2 text" }),
+    );
+
+    // Demote to v1: now the Overview form renders v1 while v2 is still latest.
+    await promoteVersion(scope, agentId, v1.versionId);
+
+    const next = await saveAgentConfigFor(
+      scope,
+      agentId,
+      config({ systemInstructions: "edited from v1" }),
+    );
+
+    assert.equal(next.createdNewVersion, true, "must not overwrite v2");
+    assert.equal(next.versionNo, 3);
+
+    // v2 is untouched — the user was not looking at it.
+    const [untouched] = await db
+      .select()
+      .from(agentVersions)
+      .where(eq(agentVersions.id, v2.versionId));
+    assert.equal(untouched.systemInstructions, "v2 text");
+  });
+
+  test("the production version cannot be archived", async () => {
+    const { agentId } = await createAgentWithDraft(scope, { name: "NoArchive" });
+    const v1 = await saveAgentConfigFor(scope, agentId, config());
+
+    await assert.rejects(
+      () => setVersionArchived(scope, agentId, v1.versionId, true),
+      /Promote another version/,
+    );
+  });
+
+  test("an archived version cannot be promoted until it is unarchived", async () => {
+    const { agentId } = await createAgentWithDraft(scope, { name: "Archived" });
+    const v1 = await saveAgentConfigFor(scope, agentId, config());
+    await recordCompletedRun(scope, v1.versionId);
+    await saveAgentConfigFor(scope, agentId, config({ maxSteps: 4 }));
+
+    await setVersionArchived(scope, agentId, v1.versionId, true);
+
+    await assert.rejects(
+      () => promoteVersion(scope, agentId, v1.versionId),
+      /Unarchive/,
+    );
+
+    await setVersionArchived(scope, agentId, v1.versionId, false);
+    await promoteVersion(scope, agentId, v1.versionId);
+
+    const [agent] = await db.select().from(agents).where(eq(agents.id, agentId));
+    assert.equal(agent.productionVersionId, v1.versionId);
+  });
+
+  test("an archived latest version is not edited in place", async () => {
+    const { agentId } = await createAgentWithDraft(scope, { name: "ArchLatest" });
+    const v1 = await saveAgentConfigFor(scope, agentId, config());
+    await recordCompletedRun(scope, v1.versionId);
+    const v2 = await saveAgentConfigFor(scope, agentId, config({ maxSteps: 5 }));
+
+    await promoteVersion(scope, agentId, v1.versionId);
+    await setVersionArchived(scope, agentId, v2.versionId, true);
+
+    const next = await saveAgentConfigFor(scope, agentId, config({ maxSteps: 6 }));
+    assert.equal(next.createdNewVersion, true);
+    assert.equal(next.versionNo, 3);
+  });
+
+  test("a version from another organization cannot be promoted", async () => {
+    const other = await createTestOrg();
+    try {
+      const { agentId } = await createAgentWithDraft(scope, { name: "Tenant" });
+      const v1 = await saveAgentConfigFor(scope, agentId, config());
+
+      await assert.rejects(
+        () => promoteVersion(other, agentId, v1.versionId),
+        /not found/,
+      );
+    } finally {
+      await destroyTestOrg(other);
+    }
   });
 });

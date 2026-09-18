@@ -4,9 +4,8 @@ import { getAgent } from "@/server/queries";
 import { StatusDot } from "../../_components/ui";
 
 /**
- * §2 — depth lives inside the agent. Phase 1 ships Overview and Runs;
- * Versions (Phase 2) and Evaluations (Phase 3) slot in here as further tabs
- * without touching the global nav.
+ * §2 — depth lives inside the agent. Evaluations (Phase 3) slots in here as a
+ * further tab without touching the global nav.
  */
 export default async function AgentLayout({
   children,
@@ -22,6 +21,7 @@ export default async function AgentLayout({
   const tabs = [
     { href: `/agents/${id}`, label: "Overview" },
     { href: `/agents/${id}/runs`, label: "Runs" },
+    { href: `/agents/${id}/versions`, label: "Versions" },
   ];
 
   return (
