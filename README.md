@@ -88,14 +88,42 @@ Note that if you leave `pnpm worker` running, it will compete with the tests for
 
 ## Not yet built
 
-The rest of Phase 2 (workflow capture and re-run), Phase 3 (evaluations,
-workspace switcher), and most of Phase 4 (structured logging, rate limits,
-Docker image for the app itself). The `Workflows` nav item and the
-`eval_sets` / `eval_tasks` / `eval_runs` tables exist but have no UI yet.
+Phase 3 (evaluations, workspace switcher) and most of Phase 4 (structured
+logging, rate limits, Docker image for the app itself). The `eval_sets` /
+`eval_tasks` / `eval_runs` tables exist but have no UI yet.
 
 One known gap worth naming: `POST /api/workflows/:id/run` does not exist yet,
 and when it does it needs the per-organization API key, since otherwise it is an
 unauthenticated way to spend money.
+
+## Workflows
+
+A workflow is a saved run. Open a completed run, choose **Save as workflow**,
+and turn its task into a template by replacing the parts that should vary with
+`{{placeholders}}` — `Check refund status for order {{order_id}}`. Those
+placeholders become the workflow's input schema, so the "Run again" form has one
+field per variable and the API endpoint takes named arguments.
+
+The workflow pins the agent version that produced the original run, so
+re-running it uses that config rather than whatever is in production later.
+
+Each workflow exposes an endpoint authenticated with your organization's API key
+(printed once by `pnpm db:seed`):
+
+```bash
+curl -X POST http://localhost:3000/api/workflows/<id>/run \
+  -H "Authorization: Bearer $AGENTOPS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"order_id": "1182"}'
+```
+
+Scope comes from the key itself, so a key can only reach its own
+organization's workflows. A valid call returns `202` with a run id — the run is
+queued, not finished, and you follow its trace like any other. Unknown or
+missing fields return `400` listing every problem at once rather than the first
+one; an unknown field is an error rather than being ignored, since silently
+dropping a misspelled key would let you believe you had parameterised something
+you hadn't.
 
 ## Versions
 

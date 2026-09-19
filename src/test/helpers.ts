@@ -9,6 +9,7 @@ import {
   runs,
   steps,
   toolDefinitions,
+  workflows,
 } from "@/db/schema";
 import type { Scope } from "@/db/scope";
 import { BUILTIN_TOOLS } from "@/core/tools/builtin";
@@ -156,6 +157,11 @@ export async function createConfiguredAgent(
 export async function destroyTestOrg(scope: Scope): Promise<void> {
   await db.delete(steps).where(eq(steps.organizationId, scope.organizationId));
   await db.delete(runs).where(eq(runs.organizationId, scope.organizationId));
+  // Before agent_versions: `workflows.agent_version_id` is RESTRICT, so a
+  // surviving workflow blocks the whole teardown.
+  await db
+    .delete(workflows)
+    .where(eq(workflows.organizationId, scope.organizationId));
 
   const versions = await db
     .select({ id: agentVersions.id })

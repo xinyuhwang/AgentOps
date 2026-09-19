@@ -50,6 +50,8 @@ export type TraceStep = {
 export type TraceRun = {
   id: string;
   label: string | null;
+  /** The rendered task, needed to seed a workflow template from this run. */
+  task: string;
   status: RunStatus;
   errorType: ErrorType | null;
   errorDetail: string | null;
@@ -143,6 +145,7 @@ function toTraceRun(run: typeof runs.$inferSelect): TraceRun {
   return {
     id: run.id,
     label: run.label,
+    task: (run.input as { task?: string } | null)?.task ?? "",
     status: run.status,
     errorType: run.errorType,
     errorDetail: run.errorDetail,

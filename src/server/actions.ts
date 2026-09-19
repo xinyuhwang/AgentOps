@@ -15,6 +15,10 @@ import {
 } from "@/core/agents/service";
 import { resolveApproval } from "@/core/run/approvals";
 import { replayRun } from "@/core/run/replay";
+import {
+  createWorkflowFromRun,
+  runWorkflow,
+} from "@/core/workflows/service";
 
 /**
  * Thin adapter: parses the form and delegates to the agent service, which owns
@@ -79,6 +83,40 @@ export async function createAgent(formData: FormData) {
   // Lands on Overview, which is where configuration actually happens. The
   // agent stays a draft until that form is saved.
   redirect(`/agents/${agentId}`);
+}
+
+export async function saveRunAsWorkflow(runId: string, formData: FormData) {
+  const scope = await currentScope();
+
+  const workflow = await createWorkflowFromRun(scope, runId, {
+    name: String(formData.get("name") ?? ""),
+    template: String(formData.get("template") ?? ""),
+  });
+
+  revalidatePath("/workflows");
+  redirect(`/workflows/${workflow.id}`);
+}
+
+/**
+ * The re-run form. Validation errors surface on the page rather than throwing,
+ * since a missing field is ordinary use, not an exception.
+ */
+export async function runWorkflowFromForm(
+  workflowId: string,
+  _prev: { errors: string[] } | null,
+  formData: FormData,
+): Promise<{ errors: string[] }> {
+  const scope = await currentScope();
+
+  const values: Record<string, string> = {};
+  for (const [key, value] of formData.entries()) {
+    if (key !== "$ACTION_ID") values[key] = String(value);
+  }
+
+  const result = await runWorkflow(scope, workflowId, values);
+  if (!result.ok) return { errors: result.errors };
+
+  redirect(`/runs/${result.runId}`);
 }
 
 export async function promoteAgentVersion(agentId: string, versionId: string) {

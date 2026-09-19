@@ -117,6 +117,19 @@ workflows are captured from successful runs, not constructed from
 scratch on a canvas (that's the Synthex-style complexity we're
 deliberately avoiding).
 
+**The input schema comes from a task template.** Capturing a run lets
+you turn its task into a template — `Check refund status for order
+{{order_id}}` — and the placeholders *are* the schema. Without this the
+schema would be a formality: a run's input is a single task string, so
+"a form matching the input schema" would be one text box identical to
+the Run field on Overview, and the API endpoint would take one opaque
+string. Templating is what makes both worth having.
+
+The endpoint is authenticated with the per-organization API key (§7.5)
+rather than the UI session, and scope comes *from* the key, so a key can
+only reach its own organization's workflows. It returns 202 with a run
+id: the run is queued, not finished, and the caller follows the trace.
+
 ### 3.6 Versions
 Simple list: v1/v2/v3, each with created date, model, and a
 production/archived tag. One version is "production" at a time.

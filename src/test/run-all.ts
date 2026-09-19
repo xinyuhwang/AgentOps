@@ -17,6 +17,8 @@ await import("@/core/agents/diff.test");
 await import("@/core/agents/service.test");
 await import("@/core/run/machine.test");
 await import("@/core/run/replay.test");
+await import("@/core/workflows/template.test");
+await import("@/core/workflows/service.test");
 await import("@/server/stream.test");
 
 // The database pool is closed by the root `after` hooks in the integration
